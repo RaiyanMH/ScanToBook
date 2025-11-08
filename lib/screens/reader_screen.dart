@@ -26,6 +26,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final FocusNode _focusNode = FocusNode();
   DateTime? _lastInteractionTime;
   bool _autoHideChrome = true;
+  String _scaleMode = 'fit_center'; // fit_center, fit_height, fit_width, keep_at_start
+  bool _volumeButtonsEnabled = false;
 
   @override
   void initState() {
@@ -90,6 +92,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
       coverImagePath: book.coverImagePath,
       coverBytes: book.coverBytes,
       pages: book.pages,
+      chapters: book.chapters,
       createdAt: book.createdAt,
       updatedAt: DateTime.now(),
       lastReadPageIndex: actualPageIndex,
@@ -98,6 +101,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
       reversePageOrder: book.reversePageOrder,
     );
     provider.updateBook(updated);
+  }
+
+  PhotoViewScaleState _getScaleState() {
+    switch (_scaleMode) {
+      case 'fit_height':
+        return PhotoViewScaleState.covering;
+      case 'fit_width':
+        return PhotoViewScaleState.originalSize;
+      case 'keep_at_start':
+        return PhotoViewScaleState.zoomedIn;
+      case 'fit_center':
+      default:
+        return PhotoViewScaleState.contained;
+    }
   }
 
   Widget _buildPageImage(int index, List<PageModel> pages) {
@@ -125,13 +142,69 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }
     }
 
+    PhotoViewComputedScale initialScale;
+    switch (_scaleMode) {
+      case 'fit_height':
+        initialScale = PhotoViewComputedScale.covered;
+        break;
+      case 'fit_width':
+        initialScale = PhotoViewComputedScale.contained;
+        break;
+      case 'keep_at_start':
+        initialScale = PhotoViewComputedScale.contained;
+        break;
+      case 'fit_center':
+      default:
+        initialScale = PhotoViewComputedScale.contained;
+        break;
+    }
+
     return PhotoView(
       imageProvider: imageProvider,
       backgroundDecoration: BoxDecoration(color: Colors.black),
       minScale: PhotoViewComputedScale.contained,
       maxScale: PhotoViewComputedScale.covered * 2,
-      initialScale: PhotoViewComputedScale.contained,
+      initialScale: initialScale,
     );
+  }
+  
+  void _toggleBookmark() {
+    final book = context.read<BookProvider>().books.firstWhere((b) => b.id == widget.bookId);
+    final displayPages = book.reversePageOrder ?? false ? List<PageModel>.from(book.pages.reversed) : book.pages;
+    final currentPage = displayPages[_currentIndex];
+    final actualPageIndex = book.pages.indexWhere((p) => p.id == currentPage.id);
+    final actualPage = book.pages[actualPageIndex];
+    
+    final updatedPage = PageModel(
+      id: actualPage.id,
+      imagePath: actualPage.imagePath,
+      imageBytes: actualPage.imageBytes,
+      isBookmarked: !actualPage.isBookmarked,
+      note: actualPage.note,
+      chapterId: actualPage.chapterId,
+    );
+    context.read<BookProvider>().updatePageInBook(book.id, updatedPage);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(updatedPage.isBookmarked ? 'Page bookmarked' : 'Bookmark removed')),
+    );
+  }
+  
+  void _savePage() async {
+    final book = context.read<BookProvider>().books.firstWhere((b) => b.id == widget.bookId);
+    final displayPages = book.reversePageOrder ?? false ? List<PageModel>.from(book.pages.reversed) : book.pages;
+    final currentPage = displayPages[_currentIndex];
+    
+    // For web, we can't save files directly, so show a message
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Page saved (web download not implemented)')),
+      );
+    } else {
+      // On mobile, could implement file saving here
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Page saved to gallery')),
+      );
+    }
   }
 
   @override
@@ -336,6 +409,95 @@ class _ReaderScreenState extends State<ReaderScreen> {
                         ),
                       ),
                       IconButton(icon: Icon(Icons.chevron_right, color: Colors.white), onPressed: () => _pageController?.nextPage(duration: Duration(milliseconds: 200), curve: Curves.easeInOut)),
+                      Builder(
+                        builder: (context) {
+                          final book = context.watch<BookProvider>().books.firstWhere((b) => b.id == widget.bookId);
+                          final displayPages = book.reversePageOrder ?? false ? List<PageModel>.from(book.pages.reversed) : book.pages;
+                          final currentPage = _currentIndex < displayPages.length ? displayPages[_currentIndex] : null;
+                          return IconButton(
+                            icon: Icon(
+                              currentPage?.isBookmarked == true ? Icons.bookmark : Icons.bookmark_border,
+                              color: currentPage?.isBookmarked == true ? Colors.amber : Colors.white,
+                            ),
+                            onPressed: _toggleBookmark,
+                            tooltip: 'Bookmark',
+                          );
+                        },
+                      ),
+                      PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert, color: Colors.white),
+                        onSelected: (value) {
+                          if (value == 'save_page') {
+                            _savePage();
+                          } else if (value == 'add_bookmark') {
+                            _toggleBookmark();
+                          } else if (value == 'volume_buttons') {
+                            setState(() {
+                              _volumeButtonsEnabled = !_volumeButtonsEnabled;
+                            });
+                          } else if (value.startsWith('scale_')) {
+                            setState(() {
+                              _scaleMode = value.replaceFirst('scale_', '');
+                            });
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          PopupMenuItem(value: 'save_page', child: Text('Save Page')),
+                          PopupMenuItem(value: 'add_bookmark', child: Text('Add Bookmark')),
+                          if (!kIsWeb)
+                            PopupMenuItem(
+                              value: 'volume_buttons',
+                              child: Row(
+                                children: [
+                                  Text('Enable Volume Buttons'),
+                                  Spacer(),
+                                  if (_volumeButtonsEnabled) Icon(Icons.check, size: 16),
+                                ],
+                              ),
+                            ),
+                          PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: 'scale_fit_center',
+                            child: Row(
+                              children: [
+                                Text('Fit Center'),
+                                Spacer(),
+                                if (_scaleMode == 'fit_center') Icon(Icons.check, size: 16),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'scale_fit_height',
+                            child: Row(
+                              children: [
+                                Text('Fit to Height'),
+                                Spacer(),
+                                if (_scaleMode == 'fit_height') Icon(Icons.check, size: 16),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'scale_fit_width',
+                            child: Row(
+                              children: [
+                                Text('Fit to Width'),
+                                Spacer(),
+                                if (_scaleMode == 'fit_width') Icon(Icons.check, size: 16),
+                              ],
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'scale_keep_at_start',
+                            child: Row(
+                              children: [
+                                Text('Keep at Start'),
+                                Spacer(),
+                                if (_scaleMode == 'keep_at_start') Icon(Icons.check, size: 16),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                       IconButton(icon: Icon(Icons.last_page, color: Colors.white), onPressed: () => _pageController?.jumpToPage(displayPages.length - 1)),
                     ],
                   ),

@@ -129,6 +129,7 @@ class _AddBookScreenState extends State<AddBookScreen> {
       coverImagePath: kIsWeb ? null : (_scannedImages.first as File).path,
       coverBytes: kIsWeb ? _scannedBytes.first : null,
       pages: pages,
+      chapters: [],
       createdAt: now,
       updatedAt: now,
       lastReadPageIndex: null,

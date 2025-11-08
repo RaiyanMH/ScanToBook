@@ -12,6 +12,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
+import '../models/chapter.dart';
+import 'chapter_detail_screen.dart';
+import 'package:uuid/uuid.dart';
 
 class BookDetailsScreen extends StatefulWidget {
   final String bookId;
@@ -23,6 +26,86 @@ class BookDetailsScreen extends StatefulWidget {
 
 class _BookDetailsScreenState extends State<BookDetailsScreen> {
   bool _reorderMode = false;
+  
+  void _createChapter(BuildContext context, Book book, int pageIndex) async {
+    final controller = TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Create Chapter'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: 'Chapter name',
+            labelText: 'Chapter Name',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, controller.text), child: Text('Create')),
+        ],
+      ),
+    );
+    if (result != null && result.trim().isNotEmpty) {
+      final uuid = Uuid();
+      final chapterId = uuid.v4();
+      final newChapter = Chapter(
+        id: chapterId,
+        name: result.trim(),
+        startPageIndex: pageIndex,
+      );
+      
+      // Update all pages from this index onwards to belong to this chapter
+      final updatedPages = book.pages.asMap().entries.map((entry) {
+        if (entry.key >= pageIndex) {
+          return PageModel(
+            id: entry.value.id,
+            imagePath: entry.value.imagePath,
+            imageBytes: entry.value.imageBytes,
+            isBookmarked: entry.value.isBookmarked,
+            note: entry.value.note,
+            chapterId: chapterId,
+          );
+        }
+        return entry.value;
+      }).toList();
+      
+      // Update previous chapter's endPageIndex if it exists
+      final updatedChapters = List<Chapter>.from(book.chapters);
+      if (updatedChapters.isNotEmpty) {
+        final lastChapter = updatedChapters.last;
+        updatedChapters[updatedChapters.length - 1] = Chapter(
+          id: lastChapter.id,
+          name: lastChapter.name,
+          startPageIndex: lastChapter.startPageIndex,
+          endPageIndex: pageIndex - 1,
+        );
+      }
+      updatedChapters.add(newChapter);
+      
+      final updated = Book(
+        id: book.id,
+        title: book.title,
+        coverImagePath: book.coverImagePath,
+        coverBytes: book.coverBytes,
+        pages: updatedPages,
+        chapters: updatedChapters,
+        createdAt: book.createdAt,
+        updatedAt: DateTime.now(),
+        lastReadPageIndex: book.lastReadPageIndex,
+        isRightToLeft: book.isRightToLeft,
+        isVerticalScroll: book.isVerticalScroll,
+        reversePageOrder: book.reversePageOrder,
+      );
+      Provider.of<BookProvider>(context, listen: false).updateBook(updated);
+      setState(() {});
+    }
+  }
+  
+  List<PageModel> _getBookmarkedPages(Book book) {
+    return book.pages.where((p) => p.isBookmarked).toList();
+  }
   void _renameBook(BuildContext context, Book book) async {
     final controller = TextEditingController(text: book.title);
     final result = await showDialog<String>(
@@ -43,11 +126,13 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
         coverImagePath: book.coverImagePath,
         coverBytes: book.coverBytes,
         pages: book.pages,
+        chapters: book.chapters,
         createdAt: book.createdAt,
         updatedAt: DateTime.now(),
         lastReadPageIndex: book.lastReadPageIndex,
         isRightToLeft: book.isRightToLeft,
         isVerticalScroll: book.isVerticalScroll,
+        reversePageOrder: book.reversePageOrder,
       );
       Provider.of<BookProvider>(context, listen: false).updateBook(updated);
       setState(() {});
@@ -75,11 +160,13 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
         coverImagePath: kIsWeb ? null : page.imagePath,
         coverBytes: page.imageBytes,
         pages: book.pages,
+        chapters: book.chapters,
         createdAt: book.createdAt,
         updatedAt: DateTime.now(),
         lastReadPageIndex: book.lastReadPageIndex,
         isRightToLeft: book.isRightToLeft,
         isVerticalScroll: book.isVerticalScroll,
+        reversePageOrder: book.reversePageOrder,
       );
       Provider.of<BookProvider>(context, listen: false).updateBook(updated);
       setState(() {});
@@ -278,7 +365,7 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        total == 0 ? 'Chapters: 0 of 0' : 'Chapters: 1 of 1',
+                        'Chapters: ${book.chapters.length}',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(context).colorScheme.onSurface,
                         ),
@@ -338,6 +425,28 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                 _deleteBook(context, book);
               } else if (value == 'add_page') {
                 _addPage(context, book);
+              } else if (value == 'create_chapter') {
+                final pageIndex = await showDialog<int>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text('Create Chapter'),
+                    content: SizedBox(
+                      width: 300,
+                      height: 300,
+                      child: ListView(
+                        children: book.pages.asMap().entries.map((entry) {
+                          return ListTile(
+                            title: Text('Page ${entry.key + 1}'),
+                            onTap: () => Navigator.pop(ctx, entry.key),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                );
+                if (pageIndex != null) {
+                  _createChapter(context, book, pageIndex);
+                }
               } else if (value == 'delete_page') {
                 _deletePages(context, book);
               } else if (value == 'export_pdf') {
@@ -348,6 +457,7 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
               PopupMenuItem(value: 'rename', child: Text('Rename')),
               PopupMenuItem(value: 'set_cover', child: Text('Set Cover')),
               PopupMenuItem(value: 'add_page', child: Text('Add Page')),
+              PopupMenuItem(value: 'create_chapter', child: Text('Create Chapter at Page...')),
               PopupMenuItem(value: 'rearrange', child: Text(_reorderMode ? 'Exit Rearrange' : 'Rearrange Pages')),
               PopupMenuItem(value: 'delete_page', child: Text('Delete Pages')),
               PopupMenuItem(value: 'delete', child: Text('Delete')),
@@ -359,6 +469,128 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
       body: Column(
         children: [
           header,
+          // Bookmarks section
+          if (_getBookmarkedPages(book).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextButton.icon(
+                    onPressed: () {
+                      // Navigate to bookmarks view
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: Text('Bookmarks'),
+                          content: SizedBox(
+                            width: 300,
+                            height: 400,
+                            child: ListView(
+                              children: _getBookmarkedPages(book).map((page) {
+                                final pageIndex = book.pages.indexWhere((p) => p.id == page.id);
+                                return ListTile(
+                                  leading: kIsWeb && page.imageBytes != null
+                                      ? Image.memory(page.imageBytes!, width: 50, height: 50, fit: BoxFit.cover)
+                                      : (!kIsWeb && page.imagePath.isNotEmpty
+                                          ? Image.file(File(page.imagePath), width: 50, height: 50, fit: BoxFit.cover)
+                                          : Icon(Icons.image)),
+                                  title: Text('Page ${pageIndex + 1}'),
+                                  onTap: () {
+                                    Navigator.pop(ctx);
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (_) => ReaderScreen(bookId: book.id, initialIndex: pageIndex)),
+                                    );
+                                  },
+                                  trailing: IconButton(
+                                    icon: Icon(Icons.bookmark, color: Colors.amber),
+                                    onPressed: () {
+                                      final updatedPage = PageModel(
+                                        id: page.id,
+                                        imagePath: page.imagePath,
+                                        imageBytes: page.imageBytes,
+                                        isBookmarked: false,
+                                        note: page.note,
+                                        chapterId: page.chapterId,
+                                      );
+                                      Provider.of<BookProvider>(context, listen: false).updatePageInBook(book.id, updatedPage);
+                                      setState(() {});
+                                    },
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx), child: Text('Close')),
+                          ],
+                        ),
+                      );
+                    },
+                    icon: Icon(Icons.bookmark),
+                    label: Text('Bookmarks (${_getBookmarkedPages(book).length})'),
+                  ),
+                  SizedBox(height: 8),
+                ],
+              ),
+            ),
+          // Chapters section
+          if (book.chapters.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Chapters',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  ...book.chapters.map((chapter) {
+                    final chapterPages = book.pages.where((p) => p.chapterId == chapter.id).length;
+                    return Container(
+                      margin: EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ChapterDetailScreen(bookId: book.id, chapterId: chapter.id),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.2)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  chapter.name,
+                                  style: Theme.of(context).textTheme.bodyLarge,
+                                ),
+                              ),
+                              Text(
+                                '$chapterPages pages',
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Row(
@@ -395,6 +627,7 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                             coverImagePath: book.coverImagePath,
                             coverBytes: book.coverBytes,
                             pages: pages,
+                            chapters: book.chapters,
                             createdAt: book.createdAt,
                             updatedAt: DateTime.now(),
                             lastReadPageIndex: book.lastReadPageIndex,
@@ -433,6 +666,9 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                           Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => ReaderScreen(bookId: book.id, initialIndex: idx)),
                           );
+                        },
+                        onLongPress: () {
+                          _createChapter(context, book, idx);
                         },
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
@@ -483,6 +719,9 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
                               Navigator.of(context).push(
                                 MaterialPageRoute(builder: (_) => ReaderScreen(bookId: book.id, initialIndex: idx)),
                               );
+                            },
+                            onLongPress: () {
+                              _createChapter(context, book, idx);
                             },
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(8),

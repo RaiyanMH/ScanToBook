@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'page_model.dart';
+import 'chapter.dart';
 
 class Book {
   final String id;
@@ -7,6 +8,7 @@ class Book {
   String? coverImagePath;
   Uint8List? coverBytes;
   List<PageModel> pages;
+  List<Chapter> chapters; // List of chapters
   DateTime createdAt;
   DateTime updatedAt;
   int? lastReadPageIndex;
@@ -20,6 +22,7 @@ class Book {
     this.coverImagePath,
     this.coverBytes,
     required this.pages,
+    this.chapters = const [],
     required this.createdAt,
     required this.updatedAt,
     this.lastReadPageIndex,

@@ -6,6 +6,7 @@ class PageModel {
   Uint8List? imageBytes;
   bool isBookmarked;
   String? note;
+  String? chapterId; // ID of the chapter this page belongs to
 
   PageModel({
     required this.id,
@@ -13,5 +14,6 @@ class PageModel {
     this.imageBytes,
     this.isBookmarked = false,
     this.note,
+    this.chapterId,
   });
 } 
