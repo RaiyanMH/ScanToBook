@@ -1,0 +1,1 @@
+export 'book_cover_widget_web.dart' if (dart.library.io) 'book_cover_widget_io.dart'; 
