@@ -103,20 +103,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
     provider.updateBook(updated);
   }
 
-  PhotoViewScaleState _getScaleState() {
-    switch (_scaleMode) {
-      case 'fit_height':
-        return PhotoViewScaleState.covering;
-      case 'fit_width':
-        return PhotoViewScaleState.originalSize;
-      case 'keep_at_start':
-        return PhotoViewScaleState.zoomedIn;
-      case 'fit_center':
-      default:
-        return PhotoViewScaleState.contained;
-    }
-  }
-
   Widget _buildPageImage(int index, List<PageModel> pages) {
     if (index >= pages.length) return Container(color: Colors.black);
     final page = pages[index];

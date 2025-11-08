@@ -409,7 +409,7 @@ class _BookDetailsScreenState extends State<BookDetailsScreen> {
       appBar: AppBar(
         actions: [
           PopupMenuButton<String>(
-            onSelected: (value) {
+            onSelected: (value) async {
               if (value == 'rearrange') {
                 setState(() {
                   _reorderMode = !_reorderMode;
